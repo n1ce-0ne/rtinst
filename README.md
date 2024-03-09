@@ -1,3 +1,29 @@
+nice-one edit:
+just got this working on the raspberry pi v5 using Ubuntu 23.10 server (GNU/Linux 6.5.0-1012-raspi aarch64)
+
+fresh install then update your system:
+sudo bash -c 'for i in update {,full-}upgrade auto{remove,clean}; do apt-get $i -y; done'
+
+#reboot your system
+sudo reboot now
+
+#get script
+sudo bash -c "$(wget --no-check-certificate -qO - https://raw.githubusercontent.com/n1ce-0ne/rtinst/master/rtsetup)"
+
+#install script
+sudo bash rtsetup
+
+sudo rtinst
+
+#note still needs a little work,
+nginx conf not setting up correctly, check your sites-enabled .conf is right
+rtorrent needed installing by running apt install rtorrent after 1st run
+
+then run the script again
+
+good luck!
+
+
 ## rtinst
 
 ### Note: Now installs Lets Encrypt SSL certificates
