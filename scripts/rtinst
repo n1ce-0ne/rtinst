@@ -67,12 +67,6 @@ if hash rtorrent >> /dev/null 2>&1; then
 else
   echo "rtorrent was not installed"
 fi
-echo
-echo "FTP Port set to $ftpport"
-echo
-echo "IMPORTANT - SSH Port has been set to: $sshport"
-echo "IMPORTANT - SSH Port has been set to: $sshport"
-echo "IMPORTANT - SSH Port has been set to: $sshport"
 exit 1
 }
 
@@ -201,7 +195,7 @@ if [ "$relno" = "10" ] || [ "$(lsb_release -sr)" = "19.10" ]; then phpver=php7.3
 if [ "$relno" = "20" ] || [ "$(lsb_release -sr)" = "20.04" ] || [ "$relno" = "11" ]; then phpver=php7.4; phploc=/etc/php/7.4; libcver=libcurl4; fi
 if [ "$relno" = "21" ] || [ "$(lsb_release -sr)" = "21.04" ]; then phpver=php7.4; phploc=/etc/php/7.4; libcver=libcurl4; fi
 if [ "$relno" = "22" ] || [ "$(lsb_release -sr)" = "22.04" ]; then phpver=php7.4; phploc=/etc/php/7.4; libcver=libcurl4; fi
-if [ "$relno" = "23" ] || [ "$relno" = "24" ]; then phpver=php8.2; phploc=/etc/php/8.2; libcver=libcurl4; if ! installed unrar; then sudo apt install php8.2-cli -y; sudo apt install php8.2-mysql -y;sudo apt install php8.2-mbstring && sudo service nginx reload;sudo apt install php-gd -y; fi; fi
+if [ "$relno" = "23" ] || [ "$relno" = "24" ]; then phpver=php8.2; phploc=/etc/php/8.2; libcver=libcurl4; sudo apt install php8.2-cli -y; sudo apt install php8.2-mysql -y;sudo apt install php8.2-mbstring && sudo service nginx reload;sudo apt install php-gd -y; fi
 
 #get server ip(s)
 serveripa=$(ip route get 8.8.8.8 | awk 'NR==1 {print $7}'); serveripb=$(wget -qO- --timeout=3 ipecho.net/plain); serveripc=$(wget -qO- --timeout=3 ipinfo.io/ip)
@@ -470,7 +464,6 @@ test -z "$install_list" || aptitude -q=5 -y install $install_list >> $logfile 2>
 if ! [ $? = 0 ]; then
   # Attempt to restart nginx before we exit the script for failure
   service nginx restart >> $logfile 2>&1
-  
   echo "Problem installing packages. Check log and rerun once it is resolved" && exit
 fi
 
@@ -494,7 +487,7 @@ if [ "$(lsb_release -sr)" = "20.04" ]; then
 fi
 
 #install unrar package
-if [ $osname = "Debian" ] && ! installed unrar; then
+if ! installed unrar; then
   echo "Installing rar/unrar"
   cd $home
   attempts=0
@@ -520,50 +513,51 @@ elif [ $osname = "Ubuntu" ] && ! installed unrar; then echo "Installing rar/unra
 fi
 if installed unrar; then echo "App: rar/unrar is installed"; else echo "rar/unrar install failed"; fi
 
-setup_resolvconf_file() {
+#setup_resolvconf_file() {
   # Remove the symlinked resolv.conf file
-  rm /etc/resolv.conf >> $logfile 2>&1
+ # rm /etc/resolv.conf >> $logfile 2>&1
 
   # Create new resolv.conf file. Add dnsmasq and cloudflare dns server
-  bash -c 'echo nameserver 127.0.0.1 >> /etc/resolv.conf'
-  bash -c 'echo nameserver 1.1.1.1 >> /etc/resolv.conf'
+#  bash -c 'echo nameserver 127.0.0.1 >> /etc/resolv.conf'
+#  bash -c 'echo nameserver 1.1.1.1 >> /etc/resolv.conf'
 
   # Make resolv.conf file immutable to prevent DNS issues
-  chattr +i /etc/resolv.conf >> $logfile 2>&1
-}
+ # chattr +i /etc/resolv.conf >> $logfile 2>&1
+#}
 
 ### INSTALL DNSMASQ ###
-echo "Installing Dnsmasq"
+#echo "Installing Dnsmasq"
 
 # Disable the resolved service
-systemctl disable systemd-resolved >> $logfile 2>&1
-systemctl stop systemd-resolved >> $logfile 2>&1
+#systemctl disable systemd-resolved >> $logfile 2>&1
+#systemctl stop systemd-resolved >> $logfile 2>&1
 
 # Remove immutablity on resolv.conf file (if present)
-chattr -i /etc/resolv.conf >> $logfile 2>&1
+#chattr -i /etc/resolv.conf >> $logfile 2>&1
 
 # Run procress to setup resolvconf file
-setup_resolvconf_file;
+#setup_resolvconf_file;
 
 # Install dnsmasq from repository
-aptitude -q=5 -y install dnsmasq >> $logfile 2>&1
+#aptitude -q=5 -y install dnsmasq >> $logfile 2>&1
 
 ### INSTALL resolvconf ###
-echo "Installing resolvconf"
+#echo "Installing resolvconf"
 
 # Remove immutablity on resolv.conf file
-chattr -i /etc/resolv.conf >> $logfile 2>&1
+#chattr -i /etc/resolv.conf >> $logfile 2>&1
 
 # Install resolvconf
-aptitude -q=5 -y install resolvconf >> $logfile 2>&1
+#aptitude -q=5 -y install resolvconf >> $logfile 2>&1
 
 # Run procress to setup resolvconf file
-setup_resolvconf_file;
+#setup_resolvconf_file;
 
 #install ffmpeg
-if ! [ $osname = "Raspbian" ] ! installed ffmpeg; then
+if ! installed ffmpeg; then
   echo "Installing ffmpeg"
   sudo apt install ffmpeg -y >> $logfile 2>&1
+else echo "FFmpeg already installed"
 fi
 
 echo "Completed installation of required packages"
@@ -577,65 +571,6 @@ cd $home
 sed -i '/hard nofile/ d' /etc/security/limits.conf
 sed -i '/soft nofile/ d' /etc/security/limits.conf
 sed -i '$ i\* hard nofile 65535\n* soft nofile 65535' /etc/security/limits.conf
-
-
-###############################
-### CONFIGURE SSH ###
-###############################
-
-#echo "Configuring SSH" | tee -a $logfile
-
-#oldsshport=$(grep -P '^[#\s]*Port ' /etc/ssh/sshd_config | sed 's/[^0-9]*//g')
-
-#if [ "$portdefault" = "0" ] && [ "$oldsshport" = "22" ]; then
- # sshport=22
-#elif [ "$oldsshport" = "22" ] && [ "$portdefault" = "1" ]; then
- # sshport=$(random 21000 29000)
-#else
- # sshport=$oldsshport
-#fi
-
-#sed -i "/^\(\s\|#\)*Port / c\Port $sshport" /etc/ssh/sshd_config
-#sed -i "/^\(\s\|#\)*X11Forwarding /c\X11Forwarding no" /etc/ssh/sshd_config
-#sed -i '/^\s*PasswordAuthentication no/ c\#PasswordAuthentication no' /etc/ssh/sshd_config
-
-#echo >> /etc/ssh/sshd_config
-#grep -Pq "^[#\s]*UsePAM" /etc/ssh/sshd_config && sed -i '/^\(\s\|#\)*UsePAM/ c\UsePAM yes' /etc/ssh/sshd_config || echo "UsePAM yes" >> /etc/ssh/sshd_config
-#grep -Pq "^[#\s]*UseDNS" /etc/ssh/sshd_config && sed -i '/^\(\s\|#\)*UseDNS/ c\UseDNS no' /etc/ssh/sshd_config || echo "UseDNS no" >> /etc/ssh/sshd_config
-
-#if [ -z "$(grep sshuser /etc/group)" ]; then
-#groupadd sshuser
-#fi
-
-#allowlist=$(grep ^AllowUsers /etc/ssh/sshd_config)
-#if ! [ -z "$allowlist" ]; then
- # for ssh_user in $allowlist
- #   do
- #     if   [ ! "$ssh_user" = "AllowUsers" ] && [ "$(groups $ssh_user 2> /dev/null | grep -E ' sudo(\s|$)')" = "" ]; then
-  #      adduser $ssh_user sshuser
-  #    fi
- #   done
-#  sed -i "/$allowlist/ d" /etc/ssh/sshd_config
-#fi
-#grep "AllowGroups sudo sshuser" /etc/ssh/sshd_config > /dev/null || echo "AllowGroups sudo sshuser" >> /etc/ssh/sshd_config
-
-#service ssh restart 1>> $logfile
-#sshport=$(grep 'Port ' /etc/ssh/sshd_config | sed 's/[^0-9]*//g')
-#echo "SSH port set to $sshport"
-
-###############################
-### CONFIGURE DNSMASQ ###
-###############################
-
-# Update configuration varriables in /etc/dnsmasq.conf
-sed -i "s/#port=5353/port=53/g" /etc/dnsmasq.conf
-sed -i "s/#domain-needed/domain-needed/g" /etc/dnsmasq.conf
-sed -i "s/#bogus-priv/bogus-priv/g" /etc/dnsmasq.conf
-sed -i "s/#strict-order/strict-order/g" /etc/dnsmasq.conf
-sed -i "s/#listen-address=/listen-address=127.0.0.1/g" /etc/dnsmasq.conf
-
-# Restart dnsmasq service when completed
-service dnsmasq restart >> $logfile 2>&1
 
 ###############################
 ### INSTALL NGINX ###
@@ -714,13 +649,13 @@ fi
 ###############################
 ### Configure Varnish Cache ###
 ###############################
-if [ ! -f "/etc/varnish/default.vcl" ]; then
-  echo "Configuring Varnish Cache" | tee -a $logfile
-  cp -f /etc/rtinst/conf/varnish.service /usr/lib/systemd/system/varnish.service >> $logfile 2>&1
-  cp -f /etc/rtinst/conf/varnish.vcl /etc/varnish/default.vcl >> $logfile 2>&1
-  systemctl daemon-reload >> $logfile 2>&1
-  service varnish restart >> $logfile 2>&1
-fi
+#if [ ! -f "/etc/varnish/default.vcl" ]; then
+#  echo "Configuring Varnish Cache" | tee -a $logfile
+#  cp -f /etc/rtinst/conf/varnish.service /usr/lib/systemd/system/varnish.service >> $logfile 2>&1
+#  cp -f /etc/rtinst/conf/varnish.vcl /etc/varnish/default.vcl >> $logfile 2>&1
+#  systemctl daemon-reload >> $logfile 2>&1
+#  service varnish restart >> $logfile 2>&1
+#fi
 
 ###############################
 ### INSTALL RTORRENT ###
