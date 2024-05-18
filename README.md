@@ -13,9 +13,7 @@ sudo bash -c 'for i in update {,full-}upgrade auto{remove,clean}; do apt-get $i 
 sudo reboot now
 
 #############
-
 #INSTALL FTP#
-
 #############
 
 sudo apt install vsftpd -y
@@ -29,19 +27,17 @@ AND ADD listen_port=21201
 #THEN
 sudo service vsftpd restart
 
-#pi5
+#get php repo
 
 sudo apt-get install -y language-pack-en-base && sudo export LC_ALL=en_US.UTF-8 && sudo export LANG=en_US.UTF-8 && sudo apt-get install -y software-properties-common
 sudo add-apt-repository ppa:ondrej/php
 
 sudo reboot now
 
-
-#get script - https://github.com/arakasi72/rtinst
+#get script & files from https://github.com/arakasi72/rtinst
 sudo bash -c "$(wget --no-check-certificate -qO - https://raw.githubusercontent.com/arakasi72/rtinst/master/rtsetup)"
 
-#pi5
-add my rtinst to home dir
+get my rtinst and upload to your home dir, then:
 sudo mv ~/rtinst /usr/local/bin/
 sudo chmod 755 /usr/local/bin/rtinst
 sudo rtinst
