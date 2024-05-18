@@ -35,6 +35,9 @@ sudo service vsftpd restart
 #get php repo
 
 sudo apt-get install -y language-pack-en-base && sudo export LC_ALL=en_US.UTF-8 && sudo export LANG=en_US.UTF-8 && sudo apt-get install -y software-properties-common
+
+#then
+
 sudo add-apt-repository ppa:ondrej/php
 
 sudo reboot now
