@@ -17,12 +17,10 @@ sudo reboot now
 #############
 
 sudo apt install vsftpd -y
-sudo service vsftpd restart
-sudo service vsftpd status
 sudo nano /etc/vsftpd.conf
-uncomment #write_enable=YES
 change listen to YES
 IPV6 TO NO
+uncomment #write_enable=YES
 AND ADD listen_port=21201
 #THEN
 sudo service vsftpd restart
