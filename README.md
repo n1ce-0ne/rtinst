@@ -15,8 +15,11 @@ sudo bash -c 'for i in update {,full-}upgrade auto{remove,clean}; do apt-get $i 
 sudo reboot now
 
 #############
+
 #INSTALL FTP#
+
 #############
+
 sudo apt install vsftpd -y
 sudo service vsftpd restart
 sudo service vsftpd status
