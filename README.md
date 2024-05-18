@@ -5,8 +5,11 @@ just got this working on the raspberry pi v5 using Ubuntu 23.10 server (GNU/Linu
 fresh os install then:
 
 ###############
+
 #UPDATE SYSTEM#
+
 ###############
+
 sudo bash -c 'for i in update {,full-}upgrade auto{remove,clean}; do apt-get $i -y; done'
 
 sudo reboot now
