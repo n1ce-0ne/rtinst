@@ -2,93 +2,42 @@ nice-one edit:
 
 just got this working on the raspberry pi v5 using Ubuntu 23.10 server (GNU/Linux 6.5.0-1012-raspi aarch64)
 
-fresh install then update your system:
+fresh os install then:
 
+###############
+#UPDATE SYSTEM#
+###############
 sudo bash -c 'for i in update {,full-}upgrade auto{remove,clean}; do apt-get $i -y; done'
-
-#reboot your system
 
 sudo reboot now
 
-#get script
-sudo bash -c "$(wget --no-check-certificate -qO - https://raw.githubusercontent.com/n1ce-0ne/rtinst/master/rtsetup)"
+#############
+#INSTALL FTP#
+#############
+sudo apt install vsftpd -y
+sudo service vsftpd restart
+sudo service vsftpd status
+sudo nano /etc/vsftpd.conf
+uncomment #write_enable=YES
+change listen to YES
+IPV6 TO NO
+AND ADD listen_port=21201
+#THEN
+sudo service vsftpd restart
 
-#install script
+#pi5
 
-sudo bash rtsetup
+sudo apt-get install -y language-pack-en-base && sudo export LC_ALL=en_US.UTF-8 && sudo export LANG=en_US.UTF-8 && sudo apt-get install -y software-properties-common
+sudo add-apt-repository ppa:ondrej/php
 
+sudo reboot now
+
+
+#get script - https://github.com/arakasi72/rtinst
+sudo bash -c "$(wget --no-check-certificate -qO - https://raw.githubusercontent.com/arakasi72/rtinst/master/rtsetup)"
+
+#pi5
+add my rtinst to home dir
+sudo mv ~/rtinst /usr/local/bin/
+sudo chmod 755 /usr/local/bin/rtinst
 sudo rtinst
-
-#note still needs a little work,
-
-nginx conf not setting up correctly, check your sites-enabled .conf is right
-
-rtorrent needed installing by running apt install rtorrent after 1st run
-
-then run the script again
-
-good luck!
-
-
-## rtinst
-
-### Note: Now installs Lets Encrypt SSL certificates
-
-#### 30 Second Guide
-
-Ubuntu and Debian Seedbox Installation
-
-Download and run setup (if logged in directly as root, do not need to use sudo)
-
-	sudo bash -c "$(wget --no-check-certificate -qO - https://raw.githubusercontent.com/arakasi72/rtinst/master/rtsetup)"
-
-and then to run the main script, ([check the options you can use](https://github.com/arakasi72/rtinst/wiki/Guide#21-main-script-options)):
-
-	sudo rtinst
-
-It takes about 10 minutes to run, depending on your server setup. After you have run the script and everything is working, I suggest a reboot, the script does not automate this reboot, you need to do it manually using the reboot command.
-
-[A detailed installation guide](https://github.com/arakasi72/rtinst/wiki/Installing-rtinst)
-
-[A detailed user guide](https://github.com/arakasi72/rtinst/wiki/Guide)
-
-**IMPORTANT: NOTE THE NEW SSH PORT AND MAKE SURE YOU CAN SSH INTO YOUR SERVER BEFORE CLOSING THE EXISTING SESSION**
-
-
-Current release has been tested with clean installs of: 
-
-	Ubuntu 16
-	Ubuntu 17
-	Ubuntu 18
-	Ubuntu 19
-	Ubuntu 20
-	Debian 9 "Stretch"
-	Debian 10 "Buster"
-
-Services that will be installed and configured are
-
-	1. vsftpd - ftp server
-	2. libtorrent/rtorrent
-	3. rutorrent
-	4. Nginx (webserver)
-	5. autodl-irssi
-	6. webmin (optional see section 3.7 in main guide)
-
-
-[rtinst installation guide](https://github.com/arakasi72/rtinst/wiki/Installing-rtinst)
-
-[Additional information on all the features](https://github.com/arakasi72/rtinst/wiki/Guide)
-
-To see latest updates to the script go to [Change Log](https://github.com/arakasi72/rtinst/wiki/Change-Log)
-
--------------------------------------------------------------------------
-
- Copyright (c) 2015 arakasi72 (https://github.com/arakasi72)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: 
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. 
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
- --> Licensed under the MIT license: http://www.opensource.org/licenses/mit-license.php
