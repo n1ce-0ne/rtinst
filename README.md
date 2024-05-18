@@ -43,6 +43,7 @@ sudo add-apt-repository ppa:ondrej/php
 sudo reboot now
 
 #get script & files from https://github.com/arakasi72/rtinst
+
 sudo bash -c "$(wget --no-check-certificate -qO - https://raw.githubusercontent.com/arakasi72/rtinst/master/rtsetup)"
 
 get my rtinst and upload to your home dir, then:
