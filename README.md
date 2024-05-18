@@ -47,6 +47,13 @@ sudo reboot now
 sudo bash -c "$(wget --no-check-certificate -qO - https://raw.githubusercontent.com/arakasi72/rtinst/master/rtsetup)"
 
 get my rtinst and upload to your home dir, then:
+
 sudo mv ~/rtinst /usr/local/bin/
+
+#then
+
 sudo chmod 755 /usr/local/bin/rtinst
+
+#then
+
 sudo rtinst
