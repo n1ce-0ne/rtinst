@@ -196,7 +196,7 @@ if [ "$relno" = "20" ] || [ "$(lsb_release -sr)" = "20.04" ] || [ "$relno" = "11
 if [ "$relno" = "21" ] || [ "$(lsb_release -sr)" = "21.04" ]; then phpver=php7.4; phploc=/etc/php/7.4; libcver=libcurl4; fi
 if [ "$relno" = "22" ] || [ "$(lsb_release -sr)" = "22.04" ]; then phpver=php7.4; phploc=/etc/php/7.4; libcver=libcurl4; fi
 if [ "$relno" = "23" ] || [ "$relno" = "24" ]; then phpver=php8.2; phploc=/etc/php/8.2; libcver=libcurl4;
-if ! installed php8.2-cli; then sudo apt install php8.2-cli -y; fi; if ! installed php8.2-mysql; then sudo apt install php8.2-mysql -y; fi; if ! installed php8.2-mbstring; then sudo apt install php8.2-mbstring && sudo service nginx reload; fi; if ! installed php-gd; then sudo apt install php-gd -y; fi; if ! installed geoip-bin; then sudo apt install geoip-bin -y; fi; if ! installed php8.2-cgi; then sudo apt-get install php8.2-cgi; fi; fi
+if ! installed php8.2-cli; then sudo apt install php8.2-cli -y; fi; if ! installed php8.2-mysql; then sudo apt install php8.2-mysql -y; fi; if ! installed php8.2-mbstring; then sudo apt install php8.2-mbstring && sudo service nginx reload; fi; if ! installed php-gd; then sudo apt install php-gd -y; fi; if ! installed geoip-bin; then sudo apt install geoip-bin -y; fi; if ! installed php8.2-cgi; then sudo apt-get install php8.2-cgi; fi; if ! installed tor-geoipdb; then sudo apt-get install tor-geoipdb; fi; fi
 
 #get server ip(s)
 serveripa=$(ip route get 8.8.8.8 | awk 'NR==1 {print $7}'); serveripb=$(wget -qO- --timeout=3 ipecho.net/plain); serveripc=$(wget -qO- --timeout=3 ipinfo.io/ip)
@@ -693,12 +693,6 @@ else
   echo "gui-server-password = $adlpass" >> autodl.cfg
 fi
 
-
-
-
-
-# Copy GeoIP database for ruTorrent geoip plugin
-if [ -d "/etc/rtinst/GeoIP" ]; then cp -r /etc/rtinst/GeoIP /usr/share; fi
 
 ###############################
 ### SSL CERTIFICATES ###
