@@ -1,0 +1,828 @@
+#!/bin/bash
+
+#########################################################################################
+#
+#  Copyright (c) 2015 arakasi72 (https://github.com/arakasi72)
+#
+#  --> Licensed under the MIT license: http://www.opensource.org/licenses/mit-license.php
+#
+#########################################################################################
+
+
+###############################
+### FUNCTIONS ###
+###############################
+
+#function to check if a web site is reachable
+check_url() {
+  if [[ `wget -S -T 3 --spider $1  2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then return 0; else return 1; fi
+}
+# checks if an application is installed
+installed() {
+hash $1 2>/dev/null
+}
+
+#function to check if string is valid format for an ip address
+valid_ip() { local ip=${1:-1.2.3.4}
+local i
+if expr "$ip" : '[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$' >/dev/null; then
+  for i in 1 2 3 4; do
+    if [ $(echo "$ip" | cut -d. -f$i) -gt 255 ]; then
+      return 1
+    fi
+  done
+  return 0
+else
+  return 1
+fi
+}
+
+#function to determin if unix user name is valid
+valid_name(){
+    until [[ $user =~ ^[a-z][-a-z0-9_]{2,31}$ ]]
+      do
+        echo "Enter user name (lowercase, numbers, dash and underscore):"
+        read user
+      done
+}
+
+
+
+
+#function to generate random password
+genpasswd() {
+local genln=$1
+[ -z "$genln" ] && genln=8
+tr -dc A-Za-z0-9 < /dev/urandom | head -c ${genln} | xargs
+}
+
+#function executed if the script finishes early
+early_exit() {
+local rt_ee_version
+echo "Installation is incomplete. Run rtinst again to complete"
+echo
+if hash rtorrent >> /dev/null 2>&1; then
+  rt_ee_version=$(rtorrent -h | grep -om 1 "[0-9]\{1,2\}\.[0-9]\{1,2\}\.[0-9]\{1,2\}")
+  echo "rtorrent $rt_ee_version installed"
+else
+  echo "rtorrent was not installed"
+fi
+exit 1
+}
+
+#function to set a user input password
+set_pass() {
+local localpass
+local exitvalue=0
+local password1
+local password2
+
+exec 3>&1 >/dev/tty
+
+echo "Enter a password (6+ chars)"
+echo "or leave blank to generate a random one"
+
+while [ -z $localpass ]
+do
+  echo "Please enter the new password:"
+  stty -echo
+  read password1
+  stty echo
+
+# check that password is valid
+  if [ -z $password1 ]; then
+    echo "Random password generated, will be provided to user at end of script"
+    exitvalue=1
+    localpass=$(genpasswd)
+  elif [ ${#password1} -lt 6 ]; then
+    echo "password needs to be at least 6 chars long" && continue
+  else
+    echo "Enter the new password again:"
+    stty -echo
+    read password2
+    stty echo
+
+# Check both passwords match
+    if [ $password1 != $password2 ]; then
+      echo "Passwords do not match"
+    else
+      localpass=$password1
+    fi
+  fi
+done
+
+exec >&3-
+echo $localpass
+return $exitvalue
+}
+
+#function to determine random number between 2 numbers
+random()
+{
+    local min=$1
+    local max=$2
+    local RAND=`od -t uI -N 4 /dev/urandom | awk '{print $2}'`
+    RAND=$((RAND%((($max-$min)+1))+$min))
+    echo $RAND
+}
+
+# function to ask user for y/n response
+ask_user()
+{ local answer
+  while true; do
+    read answer
+    case $answer in [Yy]* ) return 0 ;;
+                    [Nn]* ) return 1 ;;
+                        * ) echo "Enter y or n";;
+    esac
+  done
+}
+
+# function to enter IP address
+enter_ip() {
+local ip_address=$1
+
+exec 3>&1 >/dev/tty
+
+while true
+  do
+    if valid_ip $ip_address ; then
+      echo "Your Server IP is $ip_address"
+      echo -n "Is this correct y/n? "
+      ask_user && break
+    else
+      echo "Invalid IP address, please try again"
+    fi
+
+    echo "enter your server's IP address"
+    echo "e.g. 213.0.113.113"
+    read ip_address
+  done
+
+exec >&3-
+
+echo $ip_address
+}
+# Create the necessary files to pass the install procress
+PrepNginxInstall() { cp -f /etc/rtinst/conf/nginxsite /etc/nginx/sites-available/default >> $logfile 2>&1; mkdir -p /etc/nginx/conf.d/ >> $logfile 2>&1; touch /etc/nginx/conf.d/php >> $logfile 2>&1; touch /etc/nginx/conf.d/cache >> $logfile 2>&1; }
+
+StopNginx() { service nginx stop >> $logfile 2>&1; fuser -k 80/tcp >> $logfile 2>&1; fuser -k 443/tcp >> $logfile 2>&1; }
+
+###############################
+### SET VARIABLES ###
+###############################
+
+PATH=/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/bin:/sbin
+
+# if left blank will install latest version of rtorrent, or set to a specific release E.G. '0.9.6' to install that release
+rtorrentrel='0.9.6'
+
+#url's of the major components
+xmlrpc_url="https://svn.code.sf.net/p/xmlrpc-c/code/advanced/"; xmlrpc_url_alt="https://github.com/mirror/xmlrpc-c"; ru_url="https://github.com/Novik/ruTorrent/"; adl_url="https://github.com/autodl-community/"
+
+if [ $(dpkg-query -W -f='${Status}' lsb-release 2>/dev/null | grep -c "ok installed") -eq 0 ]; then echo "Installing lsb-release"; apt-get -yqq install lsb-release 2>&1 >> /dev/null; fi
+fullrel=$(lsb_release -sd); osname=$(lsb_release -si); osname=${osname^}; relno=$(lsb_release -sr | cut -d. -f1)
+# Fallback if lsb_release -si returns anything else than Ubuntu, Debian or Raspbian
+if [ ! "$osname" = "Ubuntu" ] && [ ! "$osname" = "Debian" ] && [ ! "$osname" = "Raspbian" ]; then osname=$(grep -oP '(?<=^ID=).+' /etc/os-release | tr -d '"'); osname=${osname^}; fi
+# Fallback if lsb_release -sr returns nothing
+if [ "$relno" = "" ]; then relno=$(grep -oP '(?<=^VERSION_ID=).+' /etc/os-release | tr -d '"'); fi
+
+#set php vars per os version
+if [ "$relno" = "16" ] || [ "$relno" = "17" ] || [ "$relno" = "9" ]; then phpver=php7.0; phploc=/etc/php/7.0; libcver=libcurl3; fi
+if [ "$(lsb_release -sr)" = "17.10" ]; then phpver=php7.1; phploc=/etc/php/7.1; libcver=libcurl3; fi
+if [ "$relno" = "18" ] || [ "$relno" = "19" ]; then phpver=php7.2; phploc=/etc/php/7.2; libcver=libcurl4; fi
+if [ "$relno" = "10" ] || [ "$(lsb_release -sr)" = "19.10" ]; then phpver=php7.3; phploc=/etc/php/7.3; libcver=libcurl4; fi
+if [ "$relno" = "20" ] || [ "$(lsb_release -sr)" = "20.04" ] || [ "$relno" = "11" ]; then phpver=php7.4; phploc=/etc/php/7.4; libcver=libcurl4; fi
+if [ "$relno" = "21" ] || [ "$(lsb_release -sr)" = "21.04" ]; then phpver=php7.4; phploc=/etc/php/7.4; libcver=libcurl4; fi
+if [ "$relno" = "22" ] || [ "$(lsb_release -sr)" = "22.04" ]; then phpver=php7.4; phploc=/etc/php/7.4; libcver=libcurl4; fi
+if [ "$relno" = "23" ]; then phpver=php8.3; phploc=/etc/php/8.2; libcver=libcurl4; fi
+if [ "$relno" = "24" ]; then phpver=php8.3; phploc=/etc/php/8.3; libcver=libcurl4;
+if ! installed php8.3-cli; then sudo apt install php8.3-cli -y; fi; if ! installed php8.3-mysql; then sudo apt install php8.3-mysql -y; fi; if ! installed php8.3-mbstring; then sudo apt install php8.3-mbstring && sudo service nginx reload; fi; if ! installed php-gd; then sudo apt install php-gd -y; fi; if ! installed geoip-bin; then sudo apt install geoip-bin -y; fi; if ! installed php8.3-cgi; then sudo apt-get install php8.3-cgi; fi; if ! installed tor-geoipdb; then sudo apt-get install tor-geoipdb; fi; fi
+
+#get server ip(s)
+serveripa=$(ip route get 8.8.8.8 | awk 'NR==1 {print $7}'); serveripb=$(wget -qO- --timeout=3 ipecho.net/plain); serveripc=$(wget -qO- --timeout=3 ipinfo.io/ip)
+
+if [ "$serveripa" = "$serveripb" ] || [ "$serveripa" = "$serveripc" ]; then serverip=$serveripa
+else echo "Select the IP address to use:"; echo "1.) "$serveripa; echo "2.) "$serveripb; echo "3.) "$serveripc;
+  while true
+    do
+      read answer
+      case $answer in [1] ) serverip=$serveripa && break ;;
+                      [2] ) serverip=$serveripb && break ;;
+                      [3] ) serverip=$serveripc && break ;;
+                        * ) echo "Enter 1, 2 or 3";;
+    esac
+  done
+fi
+#echo "IP set to "$serverip
+
+#set some vars
+export logfile="/dev/null"; webpass=''
+cronline1="@reboot sleep 10; /usr/local/bin/rtcheck irssi rtorrent"
+cronline2="*/10 * * * * /usr/local/bin/rtcheck irssi rtorrent"
+dlflag=1; portdefault=0; skip_rt=1; sshport=''; rudevflag=0; rurelease=master
+passfile='/etc/nginx/.htpasswd'
+package_list="sudo nano autoconf automake build-essential ca-certificates comerr-dev curl dtach htop irssi bmon libcppunit-dev $libcver libncurses5-dev libterm-readline-gnu-perl libsigc++-2.0-dev libperl-dev libtool libxml2-dev ncurses-base ncurses-term ntp patch pkg-config $phpver-fpm $phpver $phpver-cli $phpver-dev $phpver-curl $phpver-xmlrpc $phpver-xml $phpver-zip screen subversion texinfo unzip zlib1g-dev libcurl4-openssl-dev mediainfo software-properties-common $phpver-json nginx-full apache2-utils git libarchive-zip-perl libnet-ssleay-perl libhtml-parser-perl libxml-libxml-perl libjson-perl libjson-xs-perl libxml-libxslt-perl libjson-rpc-perl libarchive-zip-perl iotop varnish"
+Install_list=""; unixpass=""; passflag=0; forceyes=1; selfsign=1; rut_add_users=1;
+
+###############################
+### INITIAL SYSTEM CHECKS ###
+###############################
+
+#check it is being run as root
+if [ "$(id -u)" != "0" ]; then echo "Must be run from root or using sudo" && exit 1; fi
+
+# determine system
+if ([ "$osname" = "Ubuntu" ] && [ $relno -ge 16 ]) || ([ "$osname" = "Debian" ] && [ $relno -ge 9 ])  || ([ "$osname" = "Raspbian" ] && [ $relno -ge 9 ]); then
+  echo $fullrel.' is compatible with this script !';
+else
+ echo $fullrel.' is NOT compatible with this script !';
+ echo "Only Ubuntu release 16 and later, and Debian and Raspbian release 9 and later, are supported"
+ echo "Your system does not appear to be supported"
+ echo "Check https://github.com/arakasi72/rtinst/wiki/Installing-on-Older-OS to see if it is supported by an earlier rtinst release"
+ exit
+fi
+
+# get options
+OPTS=$(getopt -n "$0" -o dltrmysu:p:w: --long "dload,log,ssh-default,rutorrent-stable,rutorrent-master,force-yes,self-signed,user:,password:,webpass:" -- "$@")
+
+eval set -- "$OPTS"
+
+while true; do
+  case "$1" in
+    -d | --dload ) dlflag=0; shift ;;
+    -l | --log ) logfile="$HOME/rtinst.log"; shift ;;
+    -t | --ssh-default ) portdefault=0; shift;;
+    -r | --rutorrent-stable ) rudevflag=1; shift;;
+    -m | --rutorrent-master ) rudevflag=0; shift;;
+    -y | --force-yes ) forceyes=0; shift;;
+    -s | --self-signed ) selfsign=0; shift;;
+    -u | --user ) user="$2"; shift; shift;;
+    -p | --password ) unixpass="$2"; shift; shift;;
+    -w | --webpass ) webpass="$2"; shift; shift;;
+    -- ) shift; break ;;
+     * ) break ;;
+  esac
+done
+
+# Check if there is more than 0 argument
+if [ $# -gt 0 ]; then echo "No arguments allowed $1 is not a valid argument"; exit 1; fi
+
+# check required web repos are accessible
+os_repo=0; major_repo=0
+
+sed  -i "s/\/debian\s/\/debian\/ /g" /etc/apt/sources.list
+
+echo
+echo "Checking the web sites we will need are accessible"
+echo  "Checking $osname mirrors"
+for i in $(cat /etc/apt/sources.list | grep "^deb http" | cut -d' ' -f2 | uniq ); do echo -n $i": "; check_url $i && echo "OK" || { echo "FAIL"; os_repo=1; } done
+echo
+echo "Checking major 3rd party components"; echo -n "xmlrpc-c Repo: "; check_url $xmlrpc_url && echo "OK" ||  xmlrpc_repo=1
+
+if [[ $xmlrpc_repo = 1 ]]; then xmlrpc_url=$xmlrpc_url_alt; check_url $xmlrpc_url && echo "OK" || { echo "FAIL"; major_repo=1; } fi
+
+echo -n "RuTorrent Repo: ";check_url $ru_url && echo "OK" || { echo "FAIL"; major_repo=1; }
+echo -n "Autodl-irssi Repo: "; check_url $adl_url && echo "OK" || { echo "FAIL"; major_repo=1; }
+
+if [ $os_repo = 1 ]; then echo "Some of your $osname mirrors are down, try again later"; exit 1; fi
+
+if [ $major_repo = 1 ]; then echo "Some of the repositories we need are not currently available."; echo "We will continue for now, but may not be able to finish"; echo "You can rerun rtinst later to complete the installation if needed"; fi
+echo
+
+# check IP Address
+[ $forceyes = 1 ] && serverip=$(enter_ip $serverip); echo ; echo "Your server's IP is set to $serverip"; export serverip
+
+# Determine domain name using server ip address
+export serverdn=$(perl -MSocket -le "print((gethostbyaddr(inet_aton('$serverip'), AF_INET))[0])")
+if [ -z "$serverdn" ]; then echo "Unable to determine domain"; else echo "Your domain is set to $serverdn"; fi
+
+#check rtorrent installation
+if installed rtorrent; then
+  rt_current=$(rtorrent -h | grep -om 1 "[0-9]\{1,2\}\.[0-9]\{1,2\}\.[0-9]\{1,2\}")
+  if [ $forceyes = 1 ]; then echo "rtorrent $rt_current has been detected."; echo -n "Do you wish to skip rtorrent compilation? "
+    if ask_user; then skip_rt=0; echo "rtorrent installation will be skipped."
+    else skip_rt=1; echo "rtorrent will be re-installed"
+    fi
+  else
+    skip_rt=0; echo "rtorrent $rt_current has been detected."; echo "rtorrent installation will be skipped."
+  fi
+fi
+
+###############################
+### Prepare Nginx Install ###
+###############################
+
+# Try to stop nginx gracefully. If that doesn't work, kill the procress
+StopNginx
+# Prepare nginx to pass the install procress
+PrepNginxInstall
+# Generate some self-signed cerficiates to pass the install procress
+rtsslcert -d
+
+###############################
+### PREPARE SYSTEM ###
+###############################
+
+# set and prepare user
+if [ -z "$user" ]; then
+  if [ "$SUDO_USER" = "root" ] || [ -z "$SUDO_USER" ]; then
+    echo "Enter the name of the user to install to"
+    echo "This will be your primary user"
+    echo "It can be an existing user or a new user"
+    echo
+    confirm_name=1
+    while [ $confirm_name = 1 ]
+      do
+        valid_name
+        echo -n "Confirm that user name is $user y/n? "
+        if ask_user; then
+          confirm_name=0
+        else
+          user=''
+        fi
+      done
+  else
+    user=$SUDO_USER
+  fi
+else
+  if ! [[ $user =~ ^[a-z][-a-z0-9_]{2,31}$ ]]; then
+    echo "$user is not a valid user name please enter again"
+    confirm_name=1
+    while [ $confirm_name = 1 ]
+      do
+        valid_name
+        echo -n "Confirm that user name is $user y/n? "
+        if ask_user; then
+          confirm_name=0
+        else
+          user=''
+        fi
+      done
+  fi
+fi
+
+echo "User name is $user"
+
+if id -u $user >/dev/null 2>&1; then
+  echo "$user already exists"
+else
+  if [ -z "$unixpass" ]; then
+    adduser --gecos "" $user
+  else
+    adduser --gecos "" $user --disabled-password
+    echo "$user:$unixpass" | chpasswd
+  fi
+
+  if id -u $user >/dev/null 2>&1; then
+    echo "$user successfully created"
+  else
+    echo "create user failed - exiting process"
+    exit 1
+  fi
+
+fi
+
+home=$(eval echo "~$user")
+
+
+#set password for rutorrent
+if [ -z "$webpass" ] && [ $forceyes = 0 ]; then if [ -z $(grep -s $user $passfile) ]; then webpass=$(genpasswd); passflag=1; else passflag=2; fi fi
+if [ -z "$webpass" ]  && [ $passflag != 2 ]; then
+  if [ ! -z $(grep -s $user $passfile) ]; then echo "There is an existing RuTorrent password for $user"; echo -n "Use existing password y/n ? "; if ask_user; then passflag=2; fi fi
+  if [ $passflag != 2 ]; then echo "Set Password for RuTorrent web client"; webpass=$(set_pass); passflag=$?; fi
+fi
+
+#check users already using rutorrent
+rut_user_list=$(ls /var/www/rutorrent/conf/users 2>/dev/null | sed "s/$user//g")
+for rut_user in $rut_user_list; do if ! id -u $rut_user >/dev/null 2>&1; then rut_user_list=$(echo $rut_user_list | sed "s/$rut_user//g"); fi; done
+if [ -z "$rut_user_list" ]; then echo "No additional users to add"
+else
+  echo "These users have been detected:"; for rut_user in $rut_user_list; do echo $rut_user; done
+  if [ $forceyes = 0 ]; then echo "Users will be added"; rut_add_users=0
+  else echo -n "Add them to rutorrent y/n ? "; if ask_user; then rut_add_users=0; fi
+  fi
+fi
+
+#Interaction ended message
+echo ; echo "No more user input required, you can complete unattended"; echo "It will take approx 15 minutes for the script to complete"; echo
+
+# kill apt-daily.service if running 
+if [[ $(systemctl list-units --all apt-daily.service | fgrep -c apt-daily.service) -gt 0 ]]; then
+  systemctl stop apt-daily.service >> $logfile 2>&1
+  systemctl kill --kill-who=all apt-daily.service >> $logfile 2>&1
+  sleep 5
+fi
+
+# Add repo for PHP 7.4 if operating system is Ubuntu 22.04 LTS
+if [ "$relno" = "22" ] || [ "$(lsb_release -sr)" = "22.04" ]; then add-apt-repository ppa:ondrej/php -y >> $logfile 2>&1; fi
+
+#update amd upgrade system
+echo "Updating package lists" | tee $logfile; apt-get -qq update | tee -a $logfile
+
+# Installing Aptitude
+apt-get -qqy install aptitude >> $logfile 2>&1
+
+echo "Upgrading packages" | tee -a $logfile
+export DEBIAN_FRONTEND=noninteractive
+aptitude -q=5 -y upgrade >> $logfile 2>&1
+if ! [ $? = 0 ]; then echo "Problem upgrading packages. Run 'aptitude upgrade' successfully and rerun the script" && exit; fi
+
+aptitude clean && aptitude autoclean >> $logfile 2>&1
+
+#install the packages needed
+echo "Installing required packages" | tee -a $logfile
+aptitude -q=5 -y install libtool >> $logfile 2>&1
+for package_name in $package_list
+  do
+    if [ $(apt-cache show -q=0 $package_name 2>&1 | grep -c "No packages found") -eq 0 ]; then
+      if [ $(dpkg-query -W -f='${Status}' $package_name 2>/dev/null | grep -c "ok installed") -eq 0 ]; then
+        install_list="$install_list $package_name"
+      fi
+    else echo ; echo $package_name" not found, skipping"
+    fi
+  done
+
+# Installs a package needed to prevent arm64 architectures from "WARNING: Unable to start rtorrent"
+if [ "$(uname --m)" == "aarch64" ] || [ "$(dpkg --print-architecture)" == "arm64" ] ; then aptitude -q=5 -y install libxmlrpc-core-c3-dev >> $logfile 2>&1; fi
+
+# Pass 1: Attempt to install the required packages on the install list
+test -z "$install_list" || aptitude -q=5 -y install $install_list >> $logfile 2>&1
+
+# Try to stop nginx gracefully. If that doesn't work, kill the procress
+StopNginx
+
+# Prepare nginx for a second attempt by resetting the configuration file
+# This is necessary when the user disables IPV6 on the host operating system
+PrepNginxInstall
+
+# Pass 2: Verify the required packages on the install list were installed properly
+# Attempt to fix any issues with the install procress by trying twice
+echo ; echo "Verifying package installation" | tee -a $logfile
+test -z "$install_list" || aptitude -q=5 -y install $install_list >> $logfile 2>&1
+
+if ! [ $? = 0 ]; then
+  # Attempt to restart nginx before we exit the script for failure
+  service nginx restart >> $logfile 2>&1
+  echo "Problem installing packages. Check log and rerun once it is resolved" && exit
+fi
+
+# Attempt restart the nginx service after package verification is completed
+service nginx restart >> $logfile 2>&1
+
+if [[ $phpver =~ php7.[0-9] ]]; then
+  aptitude -q=5 -y install $phpver-mbstring >> $logfile 2>&1
+fi
+
+if [ "$(lsb_release -sr)" = "20.04" ]; then
+  echo "Detected Ubuntu 20.04. Upgrading to GCC 10."
+  aptitude -q=5 -y install gcc-10 g++-10 >> $logfile 2>&1
+  
+  # Configure update alternatives to use GCC 10
+  # Do gcc 10 & g++ 10 first so it receives the highest priority
+  update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 10
+  update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 10
+  update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 9
+  update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 9
+fi
+
+#install unrar package
+if ! installed unrar; then echo "Installing rar/unrar"; sudo apt install unrar; fi; if installed unrar; then echo "App: rar/unrar is installed"; else echo "rar/unrar install failed"; fi
+
+#install ffmpeg
+if ! installed ffmpeg; then echo "Installing ffmpeg"; sudo apt install ffmpeg -y >> $logfile 2>&1; else echo "FFmpeg already installed"; fi
+
+echo "Completed installation of required packages"
+
+#add user to sudo group if not already
+if groups $user | grep -q -E ' sudo(\s|$)'; then echo "$user already has sudo privileges"; else adduser $user sudo; fi
+
+cd $home
+
+#raise file limits
+sed -i '/hard nofile/ d' /etc/security/limits.conf
+sed -i '/soft nofile/ d' /etc/security/limits.conf
+sed -i '$ i\* hard nofile 65535\n* soft nofile 65535' /etc/security/limits.conf
+
+###############################
+### INSTALL NGINX ###
+###############################
+
+cd $home
+
+if [ -f "/etc/apache2/ports.conf" ]; then
+  echo "Detected apache2. Changing apache2 port to 81 in /etc/apache2/ports.conf" | tee -a $logfile
+  sed -i "s/Listen 80/Listen 81/g" /etc/apache2/ports.conf
+  service apache2 stop >> $logfile 2>&1
+fi
+
+echo "Configuring nginx" | tee -a $logfile
+
+if [ $passflag != 2 ]; then
+  if [ -f $passfile ]; then
+    htpasswd -b $passfile $user $webpass >> $logfile 2>&1
+  else
+    htpasswd -c -b $passfile $user $webpass >> $logfile 2>&1
+  fi
+fi
+
+chown www-data:www-data $passfile
+chmod 640 $passfile
+
+echo "Using PHP Location: $phploc" | tee -a $logfile
+sed -i "s/user www-data;/user www-data www-data;/g" /etc/nginx/nginx.conf
+sed -i "s/worker_processes 4;/worker_processes 1;/g" /etc/nginx/nginx.conf
+sed -i "s/pid \/run\/nginx\.pid;/pid \/var\/run\/nginx\.pid;/g" /etc/nginx/nginx.conf
+sed -i "s/# server_tokens off;/server_tokens off;/g" /etc/nginx/nginx.conf
+sed -i "s/access_log \/var\/log\/nginx\/access\.log;/access_log off;/g" /etc/nginx/nginx.conf
+sed -i "s/error\.log;/error\.log crit;/g" /etc/nginx/nginx.conf
+grep client_max_body_size /etc/nginx/nginx.conf > /dev/null 2>&1 || sed -i "/server_tokens off;/ a\        client_max_body_size 40m;\n" /etc/nginx/nginx.conf
+sed -i "/upload_max_filesize/ c\upload_max_filesize = 40M" $phploc/fpm/php.ini
+sed -i '/^;\?listen.owner/ c\listen.owner = www-data' $phploc/fpm/pool.d/www.conf
+sed -i '/^;\?listen.group/ c\listen.group = www-data' $phploc/fpm/pool.d/www.conf
+sed -i '/^;\?listen.mode/ c\listen.mode = 0660' $phploc/fpm/pool.d/www.conf
+
+mkdir -p /var/www
+if [ -d "/usr/share/nginx/www" ]; then
+  cp /usr/share/nginx/www/* /var/www
+elif [ -d "/usr/share/nginx/html" ]; then
+  cp /usr/share/nginx/html/* /var/www
+fi
+
+cp -f /etc/rtinst/conf/nginxsitedl /etc/nginx/sites-available/dload-loc
+
+echo "location ~ \.php$ {" > /etc/nginx/conf.d/php
+echo "          fastcgi_split_path_info ^(.+\.php)(/.+)$;" >> /etc/nginx/conf.d/php
+
+if [ "$phpver" = "php5" ]; then
+  echo "          fastcgi_pass unix:/var/run/php5-fpm.sock;" >> /etc/nginx/conf.d/php
+else
+  echo "          fastcgi_pass unix:/var/run/php/$phpver-fpm.sock;" >> /etc/nginx/conf.d/php
+fi
+
+echo "          fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;" >> /etc/nginx/conf.d/php
+echo "          fastcgi_index index.php;" >> /etc/nginx/conf.d/php
+echo "          include fastcgi_params;" >> /etc/nginx/conf.d/php
+echo "}" >> /etc/nginx/conf.d/php
+
+echo "location ~* \.(jpg|jpeg|gif|css|png|js|woff|ttf|svg|eot)$ {" > /etc/nginx/conf.d/cache
+echo "        expires 30d;" >> /etc/nginx/conf.d/cache
+echo "}" >> /etc/nginx/conf.d/cache
+
+# We only need to update the server name & proxy_redirect here. The certificate and key is added by the configuration file.
+sed -i "/^\(\s\|#\)*server_name/ c\        #server_name $serverip;" /etc/nginx/sites-available/default
+sed -i "/^\(\s\|#\)*proxy_redirect/ c\        proxy_redirect http://localhost:6081 https://$serverip;" /etc/nginx/sites-available/default
+
+service nginx restart && service $phpver-fpm restart
+
+if [ $dlflag = 0 ]; then
+  rtdload enable
+fi
+
+###############################
+### INSTALL RTORRENT ###
+###############################
+
+if [ $skip_rt = 1 ]; then
+  if [ -z $rtorrentrel ]; then rtorrentrel='latest'; fi
+  export home
+  # call the script rtupdate to install lib/rtorrent
+  rtupdate $rtorrentrel || sudo apt -y install rtorrent; #  early_exit;
+  export -n home
+  echo "Configuring rtorrent" | tee -a $logfile
+  cd $home
+
+  mkdir -p rtorrent/.session; mkdir -p rtorrent/download; mkdir -p rtorrent/watch; mkdir -p rtorrent/log
+
+  cp -f /etc/rtinst/conf/rtorrent.rc $home/.rtorrent.rc
+  sed -i "s|<user home>|${home}|g" $home/.rtorrent.rc
+  sed -i "s/<user name>/$user/g" $home/.rtorrent.rc
+else
+  echo "skiping rtorrent installation" | tee -a $logfile
+fi
+
+###############################
+### INSTALL RUTORRENT ###
+###############################
+
+if [ ! -d "/var/www" ]; then mkdir -p /var/www; fi
+cd /var/www
+
+if [ -d "/var/www/rutorrent" ]; then rm -r /var/www/rutorrent; fi
+
+rurelease="v3.10"
+
+echo "Installing Rutorrent ($rurelease)" | tee -a $logfile
+wget -q https://github.com/Novik/ruTorrent/archive/$rurelease.tar.gz | tee -a $logfile
+tar -xzf $rurelease.tar.gz
+mv $(tar -tzf $rurelease.tar.gz | head -1) rutorrent
+rm $rurelease.tar.gz
+
+echo "Configuring Rutorrent" | tee -a $logfile
+rm rutorrent/conf/config.php
+cp -f /etc/rtinst/conf/ru.config /var/www/rutorrent/conf/config.php
+mkdir -p /var/www/rutorrent/conf/users/$user/plugins
+
+echo "<?php" > /var/www/rutorrent/conf/users/$user/config.php
+echo >> /var/www/rutorrent/conf/users/$user/config.php
+echo "\$homeDirectory = \"$home\";" >> /var/www/rutorrent/conf/users/$user/config.php
+echo "\$topDirectory = \"$home\";" >> /var/www/rutorrent/conf/users/$user/config.php
+echo "\$scgi_port = 5000;" >> /var/www/rutorrent/conf/users/$user/config.php
+echo "\$XMLRPCMountPoint = \"/RPC2\";" >> /var/www/rutorrent/conf/users/$user/config.php
+echo >> /var/www/rutorrent/conf/users/$user/config.php
+echo "?>" >> /var/www/rutorrent/conf/users/$user/config.php
+
+cp -f /etc/rtinst/conf/ru.ini /var/www/rutorrent/conf/plugins.ini
+if [ $osname = "Raspbian" ]; then
+  sed -i '/\[screenshots\]/,+1d' /var/www/rutorrent/conf/plugins.ini
+  sed -i '/\[unpack\]/,+1d' /var/www/rutorrent/conf/plugins.ini
+  echo '[screenshots]' >> /var/www/rutorrent/conf/plugins.ini
+  echo 'enabled = no' >> /var/www/rutorrent/conf/plugins.ini
+  echo '[unpack]' >> /var/www/rutorrent/conf/plugins.ini
+  echo 'enabled = no' >> /var/www/rutorrent/conf/plugins.ini
+fi
+
+
+###############################
+### INSTALL AUTODL-IRSSI ###
+###############################
+
+echo "Installing autodl-irssi" | tee -a $logfile
+adlport=$(random 36001 36100)
+adlpass=$(genpasswd $(random 12 16))
+
+echo "mkdir $home/.irssi/scripts/autorun"
+mkdir -p $home/.irssi/scripts/autorun
+cd $home/.irssi/scripts
+curl -sL http://git.io/vlcND | sed -n 's/.*browser_download_url": \?"\(.*zip\)".*/\1/p' | xargs wget --quiet -O autodl-irssi.zip
+unzip -qq -o autodl-irssi.zip | tee -a $logfile
+rm autodl-irssi.zip
+cp autodl-irssi.pl autorun/
+echo "mkdir $home/.autodl"
+mkdir -p $home/.autodl
+
+cd /var/www/rutorrent/plugins
+git clone -q https://github.com/autodl-community/autodl-rutorrent.git autodl-irssi | tee -a $home/rtinst.info
+
+mkdir /var/www/rutorrent/conf/users/$user/plugins/autodl-irssi
+
+touch /var/www/rutorrent/conf/users/$user/plugins/autodl-irssi/conf.php
+
+echo "<?php" > /var/www/rutorrent/conf/users/$user/plugins/autodl-irssi/conf.php
+echo >> /var/www/rutorrent/conf/users/$user/plugins/autodl-irssi/conf.php
+echo "\$autodlPort = $adlport;" >> /var/www/rutorrent/conf/users/$user/plugins/autodl-irssi/conf.php
+echo "\$autodlPassword = \"$adlpass\";" >> /var/www/rutorrent/conf/users/$user/plugins/autodl-irssi/conf.php
+echo >> /var/www/rutorrent/conf/users/$user/plugins/autodl-irssi/conf.php
+echo "?>" >> /var/www/rutorrent/conf/users/$user/plugins/autodl-irssi/conf.php
+
+cd $home/.autodl
+rm -f autodl2.cfg
+
+if [ -f "autodl.cfg" ]; then
+  if (grep -sq gui-server-port autodl.cfg) && (grep -sq gui-server-password autodl.cfg); then
+    sed -i "/gui-server-port/ c\gui-server-port = $adlport" autodl.cfg
+    sed -i "/gui-server-password/ c\gui-server-password = $adlpass" autodl.cfg
+  else
+    sed -i '/gui-server-port/ d' autodl.cfg
+    sed -i '/gui-server-password/ d' autodl.cfg
+    echo >> autodl.cfg
+    sed -i "1s/^/[options]\ngui-server-port = $adlport\ngui-server-password = $adlpass\n/" autodl.cfg
+  fi
+else
+  echo "[options]" > autodl.cfg
+  echo "gui-server-port = $adlport" >> autodl.cfg
+  echo "gui-server-password = $adlpass" >> autodl.cfg
+fi
+
+
+###############################
+### SSL CERTIFICATES ###
+###############################
+ 
+  # calls the script rtsslcert to generate the ssl certificated for nginx
+  if rtletsencrypt ; then
+    leflag=0
+    echo "Lets Encrypt Certificates installed"
+  else
+    leflag=1
+    echo "Self signed certificats installed"
+  fi
+
+###############################
+### FINAL TASKS ###
+###############################
+
+# set permissions
+echo "Setting permissions, Starting services" | tee -a $logfile
+chown -R www-data:www-data /var/www
+chown -R $user:$user $home
+
+if [ $dlflag = 0 ]; then
+  find $home -type d -print0 | xargs -0 chmod 755
+fi
+
+cd $home
+
+#allows users to change their rutorrent passwords
+if [ -z "$(grep "ALL ALL = NOPASSWD: /usr/local/bin/rtsetpass" /etc/sudoers)" ]; then
+  echo "ALL ALL = NOPASSWD: /usr/local/bin/rtsetpass" | (EDITOR="tee -a" visudo)  > /dev/null 2>&1
+fi
+
+# restart rtorrent
+su $user -c '/usr/local/bin/rt restart'
+su $user -c '/usr/local/bin/rt -i restart'
+
+# if irssi is installed from the previous script, restart it as well
+#if  [ -d '/var/www/rutorrent/plugins/autodl-irssi' ]; then
+ # su $user -c '/usr/local/bin/rt -i restart'
+#fi
+
+# set up crontab entries
+if [ -z "$(crontab -u $user -l | grep "$cronline1")" ]; then
+    (crontab -u $user -l; echo "$cronline1" ) | crontab -u $user - >> $logfile 2>&1
+fi
+
+if [ -z  "$(crontab -u $user -l | grep "\*/10 \* \* \* \* /usr/local/bin/rtcheck irssi rtorrent")" ]; then
+    (crontab -u $user -l; echo "$cronline2" ) | crontab -u $user - >> $logfile 2>&1
+fi
+
+# add aditional users if any
+if [ $rut_add_users = 0 ]; then
+  for rut_user in $rut_user_list; do
+    echo "Adding $rut_user"
+    rtadduser -n -u $rut_user >> $logfile 2>&1
+  done
+fi
+
+###############################
+### WRITE RTINST.INFO ###
+###############################
+
+rt_current=$(rtorrent -h | grep -om 1 "[0-9]\{1,2\}\.[0-9]\{1,2\}\.[0-9]\{1,2\}")
+ru_current=$(grep -m 1 version: /var/www/rutorrent/js/webui.js | cut -d \" -f2)
+
+echo
+echo
+echo "Summary of Installation (Important Information, please read" | tee $home/rtinst.info
+
+echo | tee $home/rtinst.info
+
+#echo "SSH Configured" | tee -a $home/rtinst.info
+#echo "   SSH port set to $sshport" | tee -a $home/rtinst.info
+#echo "   root login directly from SSH disabled"
+#echo "   login with $user and switch to root using: sudo su"
+
+#echo | tee -a $home/rtinst.info
+
+echo "rtorrent torrent client" | tee -a $home/rtinst.info
+if installed rtorrent; then
+  echo "   rtorrent $rt_current installed" | tee -a $home/rtinst.info
+  echo "   crontab entries made. rtorrent and irssi will start on boot for $user" | tee -a $home/rtinst.info
+else
+  echo "   rtorrent was not installed" | tee -a $home/rtinst.info
+fi
+
+echo | tee -a $home/rtinst.info
+
+echo "RuTorrent Web GUI" | tee -a $home/rtinst.info
+if [ -z $ru_current ]; then
+  echo "   RuTorrent was not installed" | tee -a $home/rtinst.info
+else
+  echo "   RuTorrent $ru_current installed" | tee -a $home/rtinst.info
+  
+  if [ $leflag = 0 ]; then
+    echo "   rutorrent can be accessed at https://$serverdn/rutorrent" | tee -a $home/rtinst.info
+  else
+    echo "   rutorrent can be accessed at https://$serverip/rutorrent" | tee -a $home/rtinst.info
+  fi
+  
+  if [ $passflag = 1 ]; then
+    echo "   rutorrent password set to $webpass" | tee -a $home/rtinst.info
+  elif [ $passflag = 2 ]; then
+    echo "   rutorrent password has not been changed" | tee -a $home/rtinst.info
+  else
+    echo "   rutorrent password as set by user" | tee -a $home/rtinst.info
+  fi
+  echo "   to change rutorrent password enter: rtpass" | tee -a $home/rtinst.info
+  echo | tee -a $home/rtinst.info
+  
+ # if [ $leflag = 0 ]; then
+ #   echo "   If enabled, access https downloads at https://$serverdn/download/$user" | tee -a $home/rtinst.info
+ # else
+ #   echo "   If enabled, access https downloads at https://$serverip/download/$user" | tee -a $home/rtinst.info
+ # fi
+fi
+
+echo | tee -a $home/rtinst.info
+
+echo "All information is stored in rtinst.info in your home directory."
+echo "To see contents enter: cat $home/rtinst.info"
+echo
+echo "To install webmin enter: sudo rtwebmin"
+echo
+echo "SCROLL UP IF NEEDED TO READ ALL THE SUMMARY INFO"
+echo "PLEASE REBOOT YOUR SYSTEM ONCE YOU HAVE NOTED THE ABOVE INFORMATION"
+echo | tee -a $home/rtinst.info
+echo "Thank You for choosing rtinst" | tee -a $home/rtinst.info
+echo
+chown $user rtinst.info
