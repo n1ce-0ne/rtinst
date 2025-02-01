@@ -1,3 +1,7 @@
+EDIT: FEB 2025
+use rtinst its correctly named & updated for latest ubuntu 24.10 / php 8.3 :)
+
+
 nice-one edit:
 
 just got this working on the raspberry pi v5 using Ubuntu 23.10 server (GNU/Linux 6.5.0-1012-raspi aarch64)
