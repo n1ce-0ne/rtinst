@@ -195,9 +195,10 @@ if [ "$relno" = "10" ] || [ "$(lsb_release -sr)" = "19.10" ]; then phpver=php7.3
 if [ "$relno" = "20" ] || [ "$(lsb_release -sr)" = "20.04" ] || [ "$relno" = "11" ]; then phpver=php7.4; phploc=/etc/php/7.4; libcver=libcurl4; fi
 if [ "$relno" = "21" ] || [ "$(lsb_release -sr)" = "21.04" ]; then phpver=php7.4; phploc=/etc/php/7.4; libcver=libcurl4; fi
 if [ "$relno" = "22" ] || [ "$(lsb_release -sr)" = "22.04" ]; then phpver=php7.4; phploc=/etc/php/7.4; libcver=libcurl4; fi
-if [ "$relno" = "23" ]; then phpver=php8.3; phploc=/etc/php/8.2; libcver=libcurl4; fi
-if [ "$relno" = "24" ]; then phpver=php8.3; phploc=/etc/php/8.3; libcver=libcurl4;
-if ! installed php8.3-cli; then sudo apt install php8.3-cli -y; fi; if ! installed php8.3-mysql; then sudo apt install php8.3-mysql -y; fi; if ! installed php8.3-mbstring; then sudo apt install php8.3-mbstring && sudo service nginx reload; fi; if ! installed php-gd; then sudo apt install php-gd -y; fi; if ! installed geoip-bin; then sudo apt install geoip-bin -y; fi; if ! installed php8.3-cgi; then sudo apt-get install php8.3-cgi; fi; if ! installed tor-geoipdb; then sudo apt-get install tor-geoipdb; fi; fi
+if [ "$relno" = "23" ]; then phpver=php8.3; phploc=/etc/php/8.3; libcver=libcurl4; fi
+if [ "$relno" = "24" ]; then phpver=php8.3; phploc=/etc/php/8.3; libcver=''; fi
+if [ "$relno" = "25" ]; then phpver=php8.4; phploc=/etc/php/8.4; libcver=''; fi
+if ! installed $phpver-cli; then sudo apt install $phpver-cli -y; fi; if ! installed $phpver-mysql; then sudo apt install $phpver-mysql -y; fi; if ! installed $phpver-mbstring; then sudo apt install $phpver-mbstring && sudo service nginx reload; fi; if ! installed php-gd; then sudo apt install php-gd -y; fi; if ! installed geoip-bin; then sudo apt install geoip-bin -y; fi; if ! installed $phpver-cgi; then sudo apt-get install $phpver-cgi; fi; if ! installed tor-geoipdb; then sudo apt-get install tor-geoipdb -y; fi; if ! installed zip; then sudo apt install zip; fi; if ! installed $phpver-gmp; then sudo apt -y install $phpver-gmp; fi;
 
 #get server ip(s)
 serveripa=$(ip route get 8.8.8.8 | awk 'NR==1 {print $7}'); serveripb=$(wget -qO- --timeout=3 ipecho.net/plain); serveripc=$(wget -qO- --timeout=3 ipinfo.io/ip)
@@ -217,12 +218,13 @@ fi
 #echo "IP set to "$serverip
 
 #set some vars
-export logfile="/dev/null"; webpass=''
+#export logfile="/dev/null"; webpass=''
+logfile="$HOME/rtinst.log"; webpass=''
 cronline1="@reboot sleep 10; /usr/local/bin/rtcheck irssi rtorrent"
 cronline2="*/10 * * * * /usr/local/bin/rtcheck irssi rtorrent"
 dlflag=1; portdefault=0; skip_rt=1; sshport=''; rudevflag=0; rurelease=master
 passfile='/etc/nginx/.htpasswd'
-package_list="sudo nano autoconf automake build-essential ca-certificates comerr-dev curl dtach htop irssi bmon libcppunit-dev $libcver libncurses5-dev libterm-readline-gnu-perl libsigc++-2.0-dev libperl-dev libtool libxml2-dev ncurses-base ncurses-term ntp patch pkg-config $phpver-fpm $phpver $phpver-cli $phpver-dev $phpver-curl $phpver-xmlrpc $phpver-xml $phpver-zip screen subversion texinfo unzip zlib1g-dev libcurl4-openssl-dev mediainfo software-properties-common $phpver-json nginx-full apache2-utils git libarchive-zip-perl libnet-ssleay-perl libhtml-parser-perl libxml-libxml-perl libjson-perl libjson-xs-perl libxml-libxslt-perl libjson-rpc-perl libarchive-zip-perl iotop varnish"
+package_list="sudo nano autoconf automake build-essential ca-certificates comerr-dev curl dtach htop irssi bmon libcppunit-dev $libcver libterm-readline-gnu-perl libsigc++-2.0-dev libperl-dev libtool libxml2-dev ncurses-base ncurses-term ntp patch pkg-config $phpver-fpm $phpver $phpver-cli $phpver-dev $phpver-curl $phpver-xmlrpc $phpver-xml $phpver-zip screen subversion texinfo unzip zlib1g-dev libcurl4-openssl-dev mediainfo software-properties-common nginx-full apache2-utils git libarchive-zip-perl libnet-ssleay-perl libhtml-parser-perl libxml-libxml-perl libjson-perl libjson-xs-perl libxml-libxslt-perl libjson-rpc-perl libarchive-zip-perl iotop varnish"
 Install_list=""; unixpass=""; passflag=0; forceyes=1; selfsign=1; rut_add_users=1;
 
 ###############################
@@ -587,7 +589,7 @@ if [ $skip_rt = 1 ]; then
   if [ -z $rtorrentrel ]; then rtorrentrel='latest'; fi
   export home
   # call the script rtupdate to install lib/rtorrent
-  rtupdate $rtorrentrel || sudo apt -y install rtorrent; #  early_exit;
+  rtupdate $rtorrentrel || sudo apt install rtorrent -y; #  early_exit;
   export -n home
   echo "Configuring rtorrent" | tee -a $logfile
   cd $home
@@ -712,6 +714,9 @@ fi
 ### FINAL TASKS ###
 ###############################
 
+#final rtorrent check
+if ! installed rtorrent; then echo "Final attempt to install rtorrent, if fails run manually ! sudo apt install rtorrent -y;"; sudo apt install rtorrent -y;fi
+
 # set permissions
 echo "Setting permissions, Starting services" | tee -a $logfile
 chown -R www-data:www-data /var/www
@@ -730,12 +735,8 @@ fi
 
 # restart rtorrent
 su $user -c '/usr/local/bin/rt restart'
+#restart issi
 su $user -c '/usr/local/bin/rt -i restart'
-
-# if irssi is installed from the previous script, restart it as well
-#if  [ -d '/var/www/rutorrent/plugins/autodl-irssi' ]; then
- # su $user -c '/usr/local/bin/rt -i restart'
-#fi
 
 # set up crontab entries
 if [ -z "$(crontab -u $user -l | grep "$cronline1")" ]; then
